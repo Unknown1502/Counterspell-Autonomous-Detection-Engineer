@@ -1,0 +1,219 @@
+<form theme="dark" stylesheet="counterspell.css" version="1.1">
+  <label>Counterspell Console</label>
+  <description>Paste a threat. Watch the false-positive curve drop. Approve. Ship.</description>
+
+  <fieldset submitButton="true" autoRun="false">
+    <input type="text" token="threat_token" searchWhenChanged="false">
+      <label>Threat description</label>
+      <default>An adversary is exfiltrating large volumes of data from an internal workstation to an external IP over a non-standard port within a short window. See threats/t1048_exfil.md.</default>
+    </input>
+    <input type="dropdown" token="approve_token" searchWhenChanged="false">
+      <label>Auto-approve deploy?</label>
+      <choice value="false">No — show approval gate</choice>
+      <choice value="true">Yes — deploy on convergence</choice>
+      <default>false</default>
+    </input>
+  </fieldset>
+
+  <!-- One base search drives every run-specific panel below. -->
+  <search id="cs_run">
+    <query>
+      | counterspell threat_text="$threat_token$" auto_approve=$approve_token$
+    </query>
+    <earliest>-15m</earliest>
+    <latest>now</latest>
+    <sampleRatio>1</sampleRatio>
+  </search>
+
+  <!-- ROW 1 — the magic moment, three big numbers side by side. -->
+  <row>
+    <panel>
+      <title>Latest false-positive count</title>
+      <single>
+        <search base="cs_run">
+          <query>
+            search stage=result | sort 0 -iteration | head 1 | fields fp_count
+          </query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xf58f39","0xd93f3c"]</option>
+        <option name="rangeValues">[0, 5, 25]</option>
+        <option name="useColors">1</option>
+        <option name="underLabel">false positives</option>
+        <option name="height">160</option>
+      </single>
+    </panel>
+    <panel>
+      <title>True positive caught?</title>
+      <single>
+        <search base="cs_run">
+          <query>
+            search stage=result | sort 0 -iteration | head 1
+            | eval status=if(tp_caught=1, "YES", "NO")
+            | fields status
+          </query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0xd93f3c","0x65a637"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="useColors">1</option>
+        <option name="numberPrecision">0</option>
+        <option name="height">160</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Iterations taken</title>
+      <single>
+        <search base="cs_run">
+          <query>
+            search stage=result | stats max(iteration) as iters | fields iters
+          </query>
+        </search>
+        <option name="underLabel">design + tune cycles</option>
+        <option name="height">160</option>
+      </single>
+    </panel>
+  </row>
+
+  <!-- ROW 2 — the curve itself (THIS is what the demo records). -->
+  <row>
+    <panel>
+      <title>False-positive curve — the magic moment</title>
+      <chart>
+        <search base="cs_run">
+          <query>
+            search stage=result | sort 0 iteration | table iteration, fp_count
+          </query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.axisTitleX.text">Iteration</option>
+        <option name="charting.axisTitleY.text">False positives</option>
+        <option name="charting.fieldColors">{"fp_count": 0xFF5252}</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.chart.showDataLabels">all</option>
+        <option name="height">360</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ROW 3 — agent timeline + before/after SPL diff. -->
+  <row>
+    <panel>
+      <title>Live agent progress</title>
+      <table>
+        <search base="cs_run">
+          <query>
+            sort 0 _time
+            | table _time, stage, message, iteration, tp_caught, fp_count, saved_search
+          </query>
+        </search>
+        <option name="count">25</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>First iteration SPL (naive)</title>
+      <table>
+        <search base="cs_run">
+          <query>
+            search stage=result | sort 0 iteration | head 1
+            | table iteration, fp_count, spl
+          </query>
+        </search>
+        <option name="wrap">true</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Final iteration SPL (tuned)</title>
+      <table>
+        <search base="cs_run">
+          <query>
+            search stage=result | sort 0 -iteration | head 1
+            | table iteration, fp_count, spl
+          </query>
+        </search>
+        <option name="wrap">true</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ROW 4 — run summary. -->
+  <row>
+    <panel>
+      <title>Run summary</title>
+      <table>
+        <search base="cs_run">
+          <query>
+            search stage=summary
+            | table detection, mitre, fp_curve, deployed, triage_steps
+          </query>
+        </search>
+        <option name="wrap">true</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ROW 5 — coverage panels (NOT tied to the current run; show project-wide state). -->
+  <row>
+    <panel>
+      <title>MITRE coverage — Counterspell-deployed detections</title>
+      <chart>
+        <search>
+          <query>
+            | inputlookup counterspell_runbook
+            | rex field=mitre "(?&lt;tid&gt;T\d{4}(?:\.\d{3})?)" max_match=10
+            | stats count by tid
+            | sort -count
+          </query>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.axisTitleX.text">Detections deployed</option>
+        <option name="charting.axisTitleY.text">MITRE technique</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="height">280</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Deployed detections (runbook KV store)</title>
+      <table>
+        <search>
+          <query>
+            | inputlookup counterspell_runbook
+            | table name, mitre, description, triage_steps, validation, es_enabled
+            | sort 0 name
+          </query>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ROW 6 — proof of the real action: saved search visible in Splunk. -->
+  <row>
+    <panel>
+      <title>Recently deployed saved searches (live from Splunk REST)</title>
+      <table>
+        <search>
+          <query>
+            | rest /servicesNS/-/-/saved/searches
+            | search title="Counterspell*"
+            | table title, description, search, cron_schedule, "action.notable", "action.risk", updated
+            | sort 0 -updated
+          </query>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+</form>

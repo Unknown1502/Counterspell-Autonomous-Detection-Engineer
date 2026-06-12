@@ -1,0 +1,4 @@
+<nav search_view="search">
+  <view name="counterspell_dashboard" default="true" label="Counterspell Console"/>
+  <view name="search" label="Search"/>
+</nav>

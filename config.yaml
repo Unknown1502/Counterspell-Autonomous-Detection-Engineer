@@ -1,0 +1,11 @@
+index: counterspell
+fp_threshold: 0
+max_iters: 4
+# When true, if the loop never reaches fp_threshold within max_iters it still
+# deploys the BEST (lowest-FP, TP-caught) iteration instead of reporting
+# incomplete. Keep false for the clean "→ 0" demo; flip true for resilience on
+# a threat where exactly-zero is hard. The deployed rule is always the best
+# iteration seen, never merely the last.
+allow_best_effort: false
+llm_model: foundation-sec-8b-instruct
+log_level: INFO

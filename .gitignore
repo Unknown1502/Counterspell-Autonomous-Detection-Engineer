@@ -1,0 +1,38 @@
+# Secrets — never commit
+.env
+.env.local
+*.token
+
+# Build artifacts
+counterspell-*.tgz
+build/
+dist/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local generated images / artifacts
+architecture.png
+*.log

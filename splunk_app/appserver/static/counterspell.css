@@ -1,0 +1,8 @@
+/* Counterspell dashboard styling — make the FP curve the visual anchor. */
+.dashboard-panel h2.panel-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.dashboard-row .dashboard-cell:nth-child(1) .panel-element-row {
+  border-left: 3px solid #00b3b3;
+}
