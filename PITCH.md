@@ -35,16 +35,21 @@ Paste in a threat — a CVE, a Mandiant report, a MITRE technique — and
 five agents collaborate to ship a deployed, validated detection in
 minutes:
 
-- **Architect** (Foundation-Sec 8B) maps the threat to MITRE ATT&CK and
-  designs a tunable detection.
-- **Red-team** (Foundation-Sec + Splunk HEC) generates a synthetic attack
+- **Architect** (OpenAI-compatible LLM) maps the threat to MITRE ATT&CK
+  and designs a tunable detection.
+- **Red-team** (LLM + Splunk HEC) generates a synthetic attack
   and injects it so the loop has a guaranteed true positive.
-- **Translator** (Splunk AI Assistant via MCP, with LLM fallback)
-  converts the design into SPL.
+- **Translator** (Splunk AI Assistant via MCP when available, with LLM
+  fallback) converts the design into SPL.
 - **Validator** (pure Python — deterministic, no LLM) runs the SPL via
-  MCP, splits result rows into TP and FP, returns a scored result.
-- **Deployer** (Foundation-Sec + Splunk SDK) writes the SOC runbook and
+  MCP or the SDK fallback, splits result rows into TP and FP, returns a
+  scored result.
+- **Deployer** (LLM + Splunk SDK) writes the SOC runbook and
   creates the real ES-ready saved search.
+
+The LLM seat is provider-agnostic: any OpenAI-compatible endpoint
+(Splunk-hosted Foundation-Sec, Groq, Ollama, vLLM) — a config change,
+not a code change.
 
 **In our test environment, Counterspell turned three independent threat
 descriptions into deployed zero-false-positive detections in under eight
@@ -52,18 +57,20 @@ minutes total.**
 
 ### How we built it
 
-- **Splunk MCP Server** — `run_splunk_query` powers every backtest;
-  `saia_generate_spl` powers the Translator's primary SPL path.
-- **Splunk AI Assistant for SPL** — used via MCP for the SPL-generation
-  hand-off; demonstrates "AI Assistant under agent control" without
-  re-implementing what the assistant already does well.
-- **Splunk Foundation-Sec (hosted model)** — drives the Architect,
-  Red-team, and Deployer agents through an OpenAI-compatible endpoint.
-- **Splunk Python SDK** — performs the real saved-search write, HEC
-  injection, and KV-store runbook persistence.
-- **Splunk Enterprise Security** — every deployed search ships with
-  notable-event + Risk-Based Alerting metadata + correlation-search
-  tagging. ES users get a usable detection on day one.
+- **Splunk Python SDK** — performs the real saved-search write, the
+  backtest searches, event ingestion, and KV-store runbook persistence.
+- **MCP-first integration layer** — `run_splunk_query` backs the
+  Validator and `saia_generate_spl` backs the Translator when the Splunk
+  MCP Server is installed; both fall back transparently to the SDK / LLM
+  (our demo environment runs the fallback path — enabling MCP is a
+  config change, not a code change).
+- **Provider-agnostic OpenAI-compatible model** — drives the Architect,
+  Red-team, and Deployer agents; Splunk-hosted Foundation-Sec drops in
+  via `.env`.
+- **ES-ready deploys** — every deployed search carries notable-event +
+  Risk-Based Alerting metadata + correlation-search tagging when
+  Enterprise Security is installed, and ships as a plain scheduled saved
+  search otherwise. ES users get a usable detection on day one.
 - **Splunk app packaging** — a custom SPL command (`| counterspell
   threat="..."`) and a SimpleXML dashboard ship as
   `counterspell-0.1.0.tgz`; passes AppInspect.
@@ -72,7 +79,7 @@ minutes total.**
 
 Three real ones:
 
-1. **JSON-locked output from Foundation-Sec.** Our solution: every
+1. **JSON-locked output from the model.** Our solution: every
    agent call validates against a Pydantic schema and one-shot-retries
    with the validation error in the repair prompt. The
    [`LLMClient`](src/counterspell/llm_client.py) handles this in 80 lines
@@ -93,11 +100,12 @@ Three real ones:
 - A **genuinely closed loop** — detect → design → backtest → tune →
   deploy, with a real write to Splunk that survives a UI refresh.
 - A **visible magic moment** — the FP curve drop is what judges remember.
-- A **guardrailed agent** — dedicated MCP service account scoped to
-  one sandbox index, OAuth 2.1 on MCP, human-approval gate enforced in
-  code, iteration cap, no outbound actions.
-- **Real ES integration** — notable + risk + correlation-search
-  metadata, not just `saved_searches.create`.
+- A **guardrailed agent** — service account scoped to one sandbox
+  index (OAuth 2.1 when MCP Server is enabled), human-approval gate
+  enforced in code, iteration cap, no outbound actions.
+- **ES-ready deploys** — notable + risk + correlation-search
+  metadata attached when Enterprise Security is present, not just
+  `saved_searches.create`.
 - An **automatic MITRE ATT&CK Navigator coverage layer** generated from
   run logs, droppable into the public Navigator at
   https://mitre-attack.github.io/attack-navigator/.

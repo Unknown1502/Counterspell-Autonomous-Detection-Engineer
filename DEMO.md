@@ -10,7 +10,7 @@ for the full beat-by-beat narration.
 | Time | Visual | Voiceover thrust |
 |---|---|---|
 | 0:00–0:20 | Title slide | "Every SOC has the same bottleneck — writing detections." |
-| 0:20–0:50 | Paste threat into dashboard; Architect panel updates live | "Foundation-Sec reasons through the threat and maps it to MITRE T1048." |
+| 0:20–0:50 | Paste threat into dashboard; Architect panel updates live | "The Architect agent — a provider-agnostic, OpenAI-compatible model — reasons through the threat and maps it to MITRE T1048." |
 | 0:50–1:30 | Translator → SPL on screen; Red-team injects; Validator reports "47 FPs" | "Validator runs against 30 days of historical data. Caught the attack. 47 FPs." |
 | **1:30–2:20** | **FP curve drops: 47 → 12 → 0. HOLD on the 0 for 5 sec.** | **"Watch the false-positive count drop. Forty-seven. Twelve. Zero. No human touched this loop."** |
 | 2:20–2:50 | Approval prompt → click Approve. Saved search appears in Splunk's Settings | "Counterspell pauses for human approval. On approval, the Deployer writes a real saved search via the SDK." |

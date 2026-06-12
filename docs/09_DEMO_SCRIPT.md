@@ -25,14 +25,14 @@ Length is a hard ceiling. Practice with a stopwatch. Re-record until the FP curv
 **On-screen:** the Architect agent's reasoning appears live — "extracted technique: T1048", "data source: cs:network", "logic: large outbound bytes over alternative port from one internal IP to one external IP".
 
 **Voiceover:**
-> "Here's a real threat — data exfiltration over an alternative protocol. I paste it in. The Architect agent — running on Foundation-Sec, Splunk's hosted security model — reasons through what behavior we'd actually see in our data and maps it to MITRE T1048."
+> "Here's a real threat — data exfiltration over an alternative protocol. I paste it in. The Architect agent — running on a provider-agnostic, OpenAI-compatible model — reasons through what behavior we'd actually see in our data and maps it to MITRE T1048."
 
 ### Beat 3 — Write and prove (0:50 – 1:30)
 
 **Visual:** The Translator agent produces SPL — it appears in a code block on screen. The Red-team agent panel shows "injecting 18 synthetic attack events". Then the Validator panel: "✅ caught the attack — ⚠️ 47 false positives".
 
 **Voiceover:**
-> "The Translator turns that logic into SPL using the Splunk AI Assistant. The Red-team agent generates a small synthetic attack and injects it into our index so we have a guaranteed true positive. The Validator runs the detection against thirty days of historical data. It caught the attack — but it also fired on forty-seven benign events. That's not a usable rule yet."
+> "The Translator turns that logic into runnable SPL. The Red-team agent generates a small synthetic attack and injects it into our index so we have a guaranteed true positive. The Validator runs the detection against thirty days of historical data. It caught the attack — but it also fired on forty-seven benign events. That's not a usable rule yet."
 
 ### Beat 4 — The magic moment (1:30 – 2:20)
 
@@ -60,7 +60,7 @@ Each iteration takes a few seconds to render. Hold on the final "0" for five ful
 > **3 detections shipped. 0 false positives. 8 minutes.**
 
 **Voiceover:**
-> "Counterspell. The work that used to take a detection engineer a week, in three minutes. Built on Splunk's MCP server, hosted Foundation-Sec model, AI Assistant for SPL, and the Python SDK. Real writes. No mocks."
+> "Counterspell. The work that used to take a detection engineer a week, in three minutes. Built on the Splunk Python SDK with an MCP-first integration layer and a provider-agnostic, OpenAI-compatible model. Real writes. No mocks."
 
 ---
 
@@ -133,10 +133,11 @@ Answer **truthfully** based on what you ran:
 Do **not** claim Foundation-Sec if you didn't run it. The provider-agnostic
 framing is honest and still strong. See the voiceover note in Beat 6 below.
 
-> ⚠️ **Voiceover accuracy:** Beats 6 and the "How we built it" list below say
-> "Foundation-Sec." If you recorded on Ollama, change those lines to the
-> provider-agnostic phrasing above. An over-claim a judge can't verify is the
-> fastest way to lose the technical-implementation score.
+> ⚠️ **Voiceover accuracy:** Beats 2/6 and the "How we built it" list below now
+> use the provider-agnostic phrasing by default (we record on Groq/Llama-3.3-70B).
+> Only upgrade those lines to "Foundation-Sec" if you actually re-record on the
+> Splunk-hosted Foundation-Sec endpoint. An over-claim a judge can't verify is
+> the fastest way to lose the technical-implementation score.
 
 ### Q: "What stops the agent from doing damage with write access?"
 
@@ -176,15 +177,15 @@ The detection-engineering bottleneck. Specifically: SOC teams can't write rules 
 The one-liner from `01_OVERVIEW.md`, followed by one concrete number: *"In our test environment, Counterspell turned a threat description into a deployed, zero-false-positive detection in under four minutes."*
 
 ### 3. How we built it (bullet list)
-Name every Splunk capability with one line each:
-- **Splunk MCP Server** — runs the validator's backtests and translates detection logic to SPL via the AI Assistant tools
-- **Splunk AI Assistant for SPL** — `saia_generate_spl` and `saia_optimize_spl` power the Translator agent
-- **Splunk Hosted Models — Foundation-Sec** — drives the Architect, Red-team, and Deployer agents
-- **Splunk Python SDK** — performs the real saved-search write and KV-store runbook persistence
+Name every Splunk capability with one line each — **claim only what actually ran in the recorded environment**:
+- **Splunk Python SDK** — performs the real saved-search write, the backtest searches, event ingestion, and KV-store runbook persistence
+- **MCP-first integration layer** — the Validator and Translator call Splunk MCP Server tools when available and fall back transparently to the SDK (our demo environment runs the SDK path; the MCP path is the same code with `MCP_URL` set)
+- **Provider-agnostic OpenAI-compatible LLM** — drives the Architect, Red-team, and Deployer agents; swapping in Splunk-hosted Foundation-Sec is a config change, not a code change
+- **ES-ready deploys** — notable + risk + correlation-search metadata attached when Enterprise Security is present, plain scheduled saved search otherwise
 - **Splunk app packaging** — the `counterspell_app` ships a custom SPL command and dashboard; passes AppInspect
 
 ### 4. Challenges (1 paragraph)
-Honest version: getting JSON-locked output reliably from Foundation-Sec, designing benign noise into the data generator so the FP curve has somewhere to drop from, and respecting the MCP server's runtime and result-size limits in the Validator.
+Honest version: getting JSON-locked output reliably from the model, designing benign noise into the data generator so the FP curve has somewhere to drop from, and respecting search runtime and result-size limits in the Validator.
 
 ### 5. Accomplishments (3 bullets)
 - A genuinely closed loop: detect → design → backtest → tune → deploy, with a real write
@@ -192,13 +193,13 @@ Honest version: getting JSON-locked output reliably from Foundation-Sec, designi
 - A guardrailed agent: dedicated service account, RBAC-scoped role, human-approval gate, iteration cap
 
 ### 6. What we learned (1 paragraph)
-Something specific to Foundation-Sec or to the MCP server, not generic. E.g.: *"The MCP server's design — scoped tools, OAuth, RBAC — makes it possible to give an LLM real write access without it being a bad idea."*
+Something specific to the model behavior or to the Splunk integration, not generic. E.g.: *"The MCP server's design — scoped tools, OAuth, RBAC — makes it possible to give an LLM real write access without it being a bad idea."*
 
 ### 7. What's next (3 bullets)
 Live alert triage. Multi-tenant. The CDTSM observability variant of the same loop. (These are explicitly out of scope for v1.)
 
 ### 8. Built with (tag list)
-`python` `splunk` `splunk-sdk` `mcp` `foundation-sec` `ai-assistant` `ai-agents` `cybersecurity` `mitre-attack`
+`python` `splunk` `splunk-sdk` `mcp` `ai-agents` `cybersecurity` `mitre-attack`
 
 ---
 

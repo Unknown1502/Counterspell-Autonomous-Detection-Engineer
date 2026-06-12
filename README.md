@@ -32,11 +32,15 @@ saved search with a SOC runbook.
 
 | Agent | Powered by | What it does |
 |---|---|---|
-| **Architect** | Foundation-Sec 8B | Reads the threat, produces a tunable `DetectionDesign` (MITRE techniques, sourcetypes, fields, logic, thresholds). On feedback, refines it. |
-| **Red-team** | Foundation-Sec 8B + HEC | Generates a small `AttackScenario` matching the technique and injects it via Splunk HEC so the loop has a guaranteed true positive. |
+| **Architect** | OpenAI-compatible LLM | Reads the threat, produces a tunable `DetectionDesign` (MITRE techniques, sourcetypes, fields, logic, thresholds). On feedback, refines it. |
+| **Red-team** | OpenAI-compatible LLM + HEC | Generates a small `AttackScenario` matching the technique and injects it via Splunk HEC so the loop has a guaranteed true positive. |
 | **Translator** | Splunk AI Assistant (MCP) → LLM fallback | Converts detection logic into a runnable SPL search. |
-| **Validator** | Pure Python | Runs the SPL via MCP, splits result rows into TPs (matched on `cs_scenario_id` / attacker identity) and FPs. Excludes the `cs_holdout=true` set so the tuning loop never sees the generalization holdout. **Deterministic, no LLM.** |
-| **Deployer** | Foundation-Sec 8B + Splunk SDK | Writes a SOC runbook (`DetectionDoc`) and creates the real saved search + KV store entry, wired into Enterprise Security as a notable + risk-based-alerting correlation search. |
+| **Validator** | Pure Python | Runs the SPL via MCP (SDK fallback), splits result rows into TPs (matched on `cs_scenario_id` / attacker identity) and FPs. Excludes the `cs_holdout=true` set so the tuning loop never sees the generalization holdout. **Deterministic, no LLM.** |
+| **Deployer** | OpenAI-compatible LLM + Splunk SDK | Writes a SOC runbook (`DetectionDoc`) and creates the real saved search + KV store entry. **ES-ready:** attaches notable + risk-based-alerting + correlation-search metadata when Enterprise Security is installed; ships a plain scheduled saved search otherwise. |
+
+The LLM seat is **provider-agnostic** — any OpenAI-compatible endpoint works
+(Splunk-hosted Foundation-Sec, Groq, Ollama, vLLM). Swapping providers is a
+`.env` change, not a code change.
 
 The full contracts and prompts live in [docs/04_AGENT_DESIGN.md](docs/04_AGENT_DESIGN.md)
 and [docs/05_PROMPT_LIBRARY.md](docs/05_PROMPT_LIBRARY.md).
@@ -115,9 +119,11 @@ Deploy this saved search to Splunk? [y/N] y
 ```
 
 The deployed search now appears under **Settings → Searches, reports, and alerts**
-in your Splunk UI. It ships wired for Enterprise Security — hits raise a notable
-event in **Incident Review** and contribute to **Risk-Based Alerting** — and the
-runbook entry lands in the `counterspell_runbook` KV collection.
+in your Splunk UI. It ships **ES-ready**: when Enterprise Security is installed,
+hits raise a notable event in **Incident Review** and contribute to
+**Risk-Based Alerting**; without ES it deploys as a plain scheduled saved search
+(still real, just no ES enrichment). The runbook entry lands in the
+`counterspell_runbook` KV collection either way.
 
 ### Prove it generalizes (the sharpest judge question)
 
@@ -273,9 +279,11 @@ trial is empty) are bonus reasons. Full detail in
 
 These are not afterthoughts. They are part of the pitch:
 
-- **Dedicated MCP service account** scoped to `index=counterspell` only. Even a
-  successful prompt-injection has a one-index blast radius.
-- **OAuth 2.1 on MCP** (Splunk MCP Server v1.1.0+).
+- **Dedicated MCP service account** scoped to `index=counterspell` only (when
+  MCP Server is enabled). Even a successful prompt-injection has a one-index
+  blast radius.
+- **OAuth 2.1 on MCP** (Splunk MCP Server v1.1.0+, when enabled — without MCP,
+  all reads go through the documented SDK fallback under the same scoped token).
 - **Human-approval gate** before any saved search is written. Shown on screen
   in the demo, enforced in [orchestrator.py:_confirm](src/counterspell/orchestrator.py#L18).
 - **Iteration cap** (default 4) prevents runaway tuning loops from consuming
