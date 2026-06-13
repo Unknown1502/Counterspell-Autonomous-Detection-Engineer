@@ -414,9 +414,22 @@ def _seed_holdout(day_start: datetime) -> list[dict]:
     """
     out: list[dict] = []
 
-    # 1. Legitimate large off-site backups (vs. T1048 exfil). 3-6 per day.
-    for _ in range(random.randint(3, 6)):
-        ts = _ts_for_day(day_start)
+    # 1. Legitimate large off-site backups (vs. T1048 exfil). 3-6 per day,
+    #    SPREAD across the day (>=4h apart) — real backups are scheduled, not
+    #    bursty. This is the whole point of the generalization test: the benign
+    #    transfers are large but never CONCENTRATED, so a rule that learned the
+    #    attack's burst pattern (many events in minutes) fires on zero of them,
+    #    while a rule that merely memorized "large transfer to external host"
+    #    would wrongly flag them. Keeping them un-clustered makes that contrast
+    #    deterministic instead of occasionally tripping on a random hour-collision.
+    n_backups = random.randint(3, 6)
+    slot_hours = 24 // n_backups
+    for i in range(n_backups):
+        # One backup per evenly-spaced slot, jittered within the slot but never
+        # landing two in the same hour.
+        hour = i * slot_hours + random.randint(0, max(0, slot_hours - 1))
+        ts = day_start.replace(hour=min(hour, 23), minute=random.randint(0, 59),
+                               second=random.randint(0, 59))
         out.append(_envelope("cs:network", {
             "_time": _iso(ts),
             "src_ip": HOLDOUT_BIG_TRANSFER_HOST,

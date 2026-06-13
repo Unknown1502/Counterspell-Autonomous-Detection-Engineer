@@ -45,13 +45,20 @@ def _extract_rows(resp: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(parsed, list):
                 rows.extend([r for r in parsed if isinstance(r, dict)])
             elif isinstance(parsed, dict):
-                inner = (
-                    parsed.get("results")
-                    or parsed.get("rows")
-                    or parsed.get("data")
+                # The MCP splunk_run_query result is an envelope like
+                # {"results": [...], "truncated": false, "total_rows": N}.
+                # Detect the result-list key by PRESENCE, not truthiness — an
+                # empty "results": [] must yield zero rows, not be mistaken for
+                # "no wrapper" and appended whole (which silently turned every
+                # zero-result search into one phantom row).
+                wrapper_key = next(
+                    (k for k in ("results", "rows", "data") if k in parsed), None
                 )
-                if isinstance(inner, list):
-                    rows.extend([r for r in inner if isinstance(r, dict)])
+                if wrapper_key is not None:
+                    inner = parsed.get(wrapper_key)
+                    if isinstance(inner, list):
+                        rows.extend([r for r in inner if isinstance(r, dict)])
+                    # a present-but-non-list wrapper yields no rows
                 else:
                     rows.append(parsed)
     return rows

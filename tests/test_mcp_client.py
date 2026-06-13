@@ -22,6 +22,18 @@ def test_extract_rows_from_results_envelope():
     assert rows == [{"a": 1}]
 
 
+def test_extract_rows_empty_results_envelope_is_zero_rows():
+    """A zero-result MCP envelope must yield NO rows, not the envelope itself.
+
+    Regression: `parsed.get("results") or ...` treated an empty list as falsy
+    and appended the whole {"results": [], "total_rows": 0} envelope as one
+    phantom row — which made every zero-result search (e.g. the generalization
+    holdout check) wrongly report 1 hit.
+    """
+    rows = _extract_rows(_content('{"results": [], "truncated": false, "total_rows": 0}'))
+    assert rows == []
+
+
 def test_extract_rows_from_ndjson_lines():
     blob = '{"a": 1}\n{"b": 2}\n'
     rows = _extract_rows(_content(blob))
