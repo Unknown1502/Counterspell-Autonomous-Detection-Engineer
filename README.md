@@ -279,11 +279,13 @@ trial is empty) are bonus reasons. Full detail in
 
 These are not afterthoughts. They are part of the pitch:
 
-- **Dedicated MCP service account** scoped to `index=counterspell` only (when
-  MCP Server is enabled). Even a successful prompt-injection has a one-index
-  blast radius.
-- **OAuth 2.1 on MCP** (Splunk MCP Server v1.1.0+, when enabled — without MCP,
-  all reads go through the documented SDK fallback under the same scoped token).
+- **Splunk MCP Server (v1.2.0) live** — the Validator's backtests run through
+  the MCP `splunk_run_query` tool, authenticated with an **RSA-encrypted,
+  audience-scoped bearer token** (`require_encrypted_token=true`). A successful
+  prompt-injection still can't escape the account's index scope, and if MCP is
+  unreachable the reads fall back transparently to the SDK under the same token.
+  (Scope the MCP service account to `index=counterspell` only for the full
+  one-index-blast-radius story.)
 - **Human-approval gate** before any saved search is written. Shown on screen
   in the demo, enforced in [orchestrator.py:_confirm](src/counterspell/orchestrator.py#L18).
 - **Iteration cap** (default 4) prevents runaway tuning loops from consuming

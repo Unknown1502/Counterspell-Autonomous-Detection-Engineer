@@ -180,7 +180,7 @@ The one-liner from `01_OVERVIEW.md`, followed by one concrete number: *"In our t
 ### 3. How we built it (bullet list)
 Name every Splunk capability with one line each — **claim only what actually ran in the recorded environment**:
 - **Splunk Python SDK** — performs the real saved-search write, the backtest searches, event ingestion, and KV-store runbook persistence
-- **MCP-first integration layer** — the Validator and Translator call Splunk MCP Server tools when available and fall back transparently to the SDK (our demo environment runs the SDK path; the MCP path is the same code with `MCP_URL` set)
+- **Splunk MCP Server (v1.2.0, installed and live)** — the Validator runs every backtest through the MCP `splunk_run_query` tool (JSON-RPC, RSA-encrypted bearer token; run logs show `used_mcp=true`), with transparent SDK fallback if MCP is down. The AI Assistant `generate_spl` tool needs the separate SAIA add-on, so SPL generation currently uses the LLM path
 - **Provider-agnostic OpenAI-compatible LLM** — drives the Architect, Red-team, and Deployer agents; swapping in Splunk-hosted Foundation-Sec is a config change, not a code change
 - **ES-ready deploys** — notable + risk + correlation-search metadata attached when Enterprise Security is present, plain scheduled saved search otherwise
 - **Splunk app packaging** — the `counterspell_app` ships a custom SPL command and dashboard; passes AppInspect

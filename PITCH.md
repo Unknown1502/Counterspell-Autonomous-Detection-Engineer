@@ -59,11 +59,13 @@ minutes total.**
 
 - **Splunk Python SDK** — performs the real saved-search write, the
   backtest searches, event ingestion, and KV-store runbook persistence.
-- **MCP-first integration layer** — `run_splunk_query` backs the
-  Validator and `saia_generate_spl` backs the Translator when the Splunk
-  MCP Server is installed; both fall back transparently to the SDK / LLM
-  (our demo environment runs the fallback path — enabling MCP is a
-  config change, not a code change).
+- **Splunk MCP Server (v1.2.0)** — installed and live: the Validator's
+  every backtest runs through the MCP `splunk_run_query` tool over
+  JSON-RPC with an RSA-encrypted, audience-scoped bearer token (run logs
+  record `used_mcp=true`). If MCP is unreachable it falls back
+  transparently to the SDK, so the loop never breaks. (The AI Assistant
+  `generate_spl` tool needs the separate SAIA add-on; until that's
+  installed the Translator uses the LLM path — same code, config only.)
 - **Provider-agnostic OpenAI-compatible model** — drives the Architect,
   Red-team, and Deployer agents; Splunk-hosted Foundation-Sec drops in
   via `.env`.

@@ -68,13 +68,15 @@ def _extract_text(resp: dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-# Splunk MCP Server tool names vary by version. The installed v1.2.0 app uses
-# bare names (`run_query`, `generate_spl`) in its builtin_tools.json; the web
-# docs reference prefixed variants. We try the installed names first, then the
-# documented/legacy variants, so one client works across versions. The actual
-# tool that worked is remembered after the first success.
-QUERY_TOOL_NAMES = ("run_query", "splunk_run_query", "run_splunk_query")
-GENERATE_SPL_TOOL_NAMES = ("generate_spl", "saia_generate_spl")
+# Splunk MCP Server tool names vary by version. The installed v1.2.0 app
+# registers tools under a `splunk_` prefix (verified via tools/list:
+# `splunk_run_query`, `splunk_generate_spl`); its builtin_tools.json lists the
+# bare names, and the web docs reference other variants. We try the v1.2.0
+# prefixed names FIRST, then bare/legacy variants, so one client works across
+# versions without a wasted 404 on the common case. The tool that actually
+# worked is remembered after the first success.
+QUERY_TOOL_NAMES = ("splunk_run_query", "run_query", "run_splunk_query")
+GENERATE_SPL_TOOL_NAMES = ("splunk_generate_spl", "generate_spl", "saia_generate_spl")
 GENERATE_SPL_TOOL = GENERATE_SPL_TOOL_NAMES[0]  # back-compat alias
 
 # MCP protocol version the client advertises in the initialize handshake.
