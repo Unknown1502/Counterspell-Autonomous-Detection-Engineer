@@ -7,6 +7,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# Windows consoles default to cp1252, which cannot encode the emoji/box-drawing
+# glyphs the demo prints. Force UTF-8 so the recorded run never crashes on output.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text

@@ -36,3 +36,6 @@ Thumbs.db
 # Local generated images / artifacts
 architecture.png
 *.log
+
+# Runtime demo run logs (machine-specific)
+runs/

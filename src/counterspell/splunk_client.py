@@ -189,11 +189,13 @@ class SplunkClient:
     def create_saved_search(self, name: str, spl: str, **kwargs: Any) -> str:
         """Create (or recreate) a saved search and return its name.
 
-        Deploy must never fail just because Enterprise Security is not
-        installed. If the create with full ES/RBA metadata is rejected, we
-        strip the ES-only `action.*` / `request.*` keys and retry as a plain
-        scheduled saved search. The detection still ships; only the ES
-        enrichment is dropped, and the caller is told via the returned mode.
+        We only attach ES/RBA metadata when Enterprise Security is ACTUALLY
+        installed. A stock Splunk silently accepts the `action.notable`/`risk`
+        keys as inert settings, so trusting "the create succeeded" would let us
+        claim ES enrichment that nothing can act on. We probe for ES first and
+        report `last_deploy_mode` honestly: "es" only when ES is present,
+        "plain" otherwise. Deploy never fails for lack of ES — the detection
+        still ships as a real scheduled saved search.
         """
         base: dict[str, Any] = {
             "dispatch.earliest_time": "-24h",
@@ -210,18 +212,25 @@ class SplunkClient:
         except Exception as e:  # noqa: BLE001
             log.warning("Could not delete existing saved search %s: %s", name, e)
 
-        try:
-            self.service.saved_searches.create(name, spl, **full)
-            self.last_deploy_mode = "es"
-            return name
-        except Exception as e:  # noqa: BLE001
-            log.warning(
-                "Full ES saved-search create failed (%s); retrying without ES "
-                "metadata. Install Enterprise Security for notable/risk/"
-                "correlation enrichment.", e,
-            )
+        es_present = bool(kwargs) and self.has_enterprise_security()
+        if es_present:
+            try:
+                self.service.saved_searches.create(name, spl, **full)
+                self.last_deploy_mode = "es"
+                return name
+            except Exception as e:  # noqa: BLE001
+                log.warning(
+                    "ES saved-search create failed (%s); shipping plain "
+                    "scheduled search instead.", e,
+                )
+                try:
+                    if name in self.service.saved_searches:
+                        self.service.saved_searches.delete(name)
+                except Exception:  # noqa: BLE001
+                    pass
 
-        # Retry: drop ES-only keys, keep the core scheduled search.
+        # No ES (or ES create failed): drop ES-only keys, ship the core
+        # scheduled search. This is the honest "ES-ready" path.
         plain = {
             k: v for k, v in full.items()
             if not (k.startswith("action.") or k.startswith("actions")
@@ -262,28 +271,43 @@ class SplunkClient:
         return []
 
     def kv_upsert(self, collection: str, record: dict[str, Any]) -> None:
-        """Create the KV collection if missing, then insert a record."""
-        app_ns = self.service.namespace
-        try:
-            kvstore = self.service.kvstore
-            existing = {c.name for c in kvstore}
-            if collection not in existing:
-                kvstore.create(collection)
-        except Exception as e:  # noqa: BLE001
-            log.warning("KV collection ensure failed for %s: %s", collection, e)
+        """Create the KV collection if missing, then insert a record.
 
+        The collection normally ships with the Counterspell app
+        (collections.conf), but the CLI demo runs against a stock `search` app
+        where it does not exist yet. We ensure it via the REST config endpoint
+        (idempotent: 409 means it already exists) so a deploy is self-contained
+        and reproducible on a fresh Splunk, rather than depending on the SDK
+        kvstore object's app context.
+        """
+        app_ns = self.service.namespace
         owner = getattr(app_ns, "owner", "nobody") or "nobody"
         app = getattr(app_ns, "app", "search") or "search"
-        url = (
-            f"https://{self.host}:{self.port}/servicesNS/{owner}/{app}/"
-            f"storage/collections/data/{collection}"
-        )
+        ns = f"https://{self.host}:{self.port}/servicesNS/{owner}/{app}"
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
+
+        ensure = requests.post(
+            f"{ns}/storage/collections/config",
+            headers={"Authorization": f"Bearer {self.token}"},
+            data={"name": collection},
+            verify=False,
+            timeout=30,
+        )
+        if ensure.status_code not in (200, 201, 409):
+            log.warning(
+                "KV collection ensure failed (%s): %s",
+                ensure.status_code, ensure.text[:300],
+            )
+
         resp = requests.post(
-            url, headers=headers, data=json.dumps(record), verify=False, timeout=30
+            f"{ns}/storage/collections/data/{collection}",
+            headers=headers,
+            data=json.dumps(record),
+            verify=False,
+            timeout=30,
         )
         if not (200 <= resp.status_code < 300):
             log.warning(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import time
@@ -66,34 +67,102 @@ class RedTeam:
         # 3. Primary sourcetype the detection actually reads.
         primary_st = (design.sourcetypes or ["cs:auth"])[0]
 
-        # 4. Spread events across a recent, definitely-in-window span.
-        now = datetime.now(timezone.utc)
-        events = scenario.events or []
-        if not events:
-            # Model returned no events — synthesize a minimal burst so the
-            # detection has a true positive to find.
-            events = [AttackEvent(sourcetype=primary_st, fields={}) for _ in range(8)]
+        # 3b. Exfil / C2 originates FROM an internal host. Keep the model's
+        #     src_ip only if it is already internal; otherwise pin it to an
+        #     internal address so the attack matches how the detection is
+        #     written (internal source -> external destination).
+        if not self._is_private(str(attacker.get("src_ip", ""))):
+            attacker["src_ip"] = "10.0.0.66"
+        scenario.attacker = attacker
 
-        repaired: list[AttackEvent] = []
-        n = len(events)
-        for i, ev in enumerate(events):
-            fields = dict(ev.fields or {})
-            # Attacker entity present on every event.
+        now = datetime.now(timezone.utc)
+        events = list(scenario.events or [])
+
+        # 4. Build a CONCENTRATED, coherent burst. A real attack repeats: the
+        #    same internal source hits the same external destination/port many
+        #    times. That clusterable signal is exactly what separates the attack
+        #    from the scattered, one-off benign large transfers in the baseline,
+        #    so a tuned rule can keep the attack while shedding the noise.
+        def _coherent(fields: dict) -> dict:
             fields.update(attacker)
-            # The design's key fields must exist so the detection can match.
             for kf in (design.key_fields or []):
                 fields.setdefault(kf, self._default_for_field(kf, attacker))
-            # Recent, monotonically-spaced timestamp inside the backtest window.
-            ts = now - timedelta(minutes=(n - i) * 2)
-            fields["_time"] = ts.isoformat()
-            repaired.append(AttackEvent(sourcetype=ev.sourcetype or primary_st,
-                                        fields=fields))
+            if primary_st == "cs:network":
+                fields["dest_ip"] = self._EXTERNAL_DEST
+                fields["dest_port"] = self._NONSTANDARD_PORT
+                fields["protocol"] = "tcp"
+                fields["bytes_out"] = self._BURST_BYTES
+            else:
+                # Keep the attack off standard service ports for non-network
+                # techniques that still carry a port field.
+                self._force_nonstandard_port(fields)
+            return fields
+
+        repaired: list[AttackEvent] = []
+        for ev in events:
+            st = ev.sourcetype or primary_st
+            base = dict(ev.fields or {})
+            fields = _coherent(base) if st == primary_st else {**base, **attacker}
+            repaired.append(AttackEvent(sourcetype=st, fields=fields))
+
+        # Guarantee enough PRIMARY-sourcetype events that any per-entity
+        # aggregation sees a cluster, even if the model emitted only a handful.
+        primary_count = sum(1 for e in repaired if e.sourcetype == primary_st)
+        for _ in range(max(0, self._MIN_BURST - primary_count)):
+            repaired.append(AttackEvent(sourcetype=primary_st, fields=_coherent({})))
+
+        # Recent, monotonically-spaced timestamps inside the backtest window.
+        n = len(repaired)
+        for i, ev in enumerate(repaired):
+            ev.fields["_time"] = (now - timedelta(minutes=(n - i) * 2)).isoformat()
+
         scenario.events = repaired
         scenario.window = {
             "earliest": (now - timedelta(minutes=n * 2 + 5)).isoformat(),
             "latest": now.isoformat(),
         }
         return scenario
+
+    # The RFC1918 ranges detection rules actually test with cidrmatch. We match
+    # these exactly (not ipaddress.is_private, which also counts TEST-NET/doc
+    # ranges as private and would let a non-RFC1918 src slip through).
+    _RFC1918 = [
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+    ]
+
+    @classmethod
+    def _is_private(cls, ip: str) -> bool:
+        """True if ip is RFC1918 internal — what a cidrmatch detection treats as inside."""
+        try:
+            addr = ipaddress.ip_address(ip.strip())
+        except ValueError:
+            return False
+        return any(addr in net for net in cls._RFC1918)
+
+    # Ports a detection would reasonably treat as benign / standard service
+    # traffic. A red-team event sitting on one of these is self-defeating.
+    _STANDARD_PORTS = {20, 21, 22, 23, 25, 53, 80, 110, 143, 389, 443, 445,
+                       465, 587, 993, 995, 3389}
+    _NONSTANDARD_PORT = 4444
+    # Fixed external target for the exfil burst (TEST-NET-3, non-private).
+    _EXTERNAL_DEST = "203.0.113.77"
+    _BURST_BYTES = 250 * 1024 * 1024  # 250 MB per event — unambiguously large
+    _MIN_BURST = 12  # enough repeats that any per-entity aggregation clusters
+
+    @classmethod
+    def _force_nonstandard_port(cls, fields: dict) -> None:
+        """Move any port-named field off a standard port onto a non-standard one."""
+        for key in list(fields.keys()):
+            if "port" not in key.lower():
+                continue
+            try:
+                port = int(str(fields[key]).strip())
+            except (TypeError, ValueError):
+                continue
+            if port in cls._STANDARD_PORTS:
+                fields[key] = cls._NONSTANDARD_PORT
 
     @staticmethod
     def _default_for_field(field: str, attacker: dict[str, str]) -> object:
