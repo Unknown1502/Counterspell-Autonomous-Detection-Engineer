@@ -88,17 +88,22 @@ The key insight: the true attack is far MORE EXTREME than the benign false
 positives. Look at the sample FPs below and find the ONE dimension where the
 attack clearly exceeds them, then move the threshold into the gap — above the
 benign values, still below the attack's:
-  * exfil / volume: the attack repeats the same src→dest/port many times for a
-    large total; benign transfers are one-off. Raise the volume threshold and/or
-    require the same src→dest seen multiple times.
+  * exfil / volume: the attack is a BURST — the same src→dest/port many times
+    WITHIN A SHORT WINDOW (minutes). Some benign sources (e.g. nightly off-site
+    backups) ALSO repeat to the same destination, but spread over DAYS — so
+    counting events over the whole search window wrongly flags them. Bucket by a
+    short time span (`bin _time span=1h`) and require several events in ONE
+    bucket; that keeps the minutes-long attack burst and drops the slow benign
+    repeaters. Raise the per-bucket volume/count rather than the all-time total.
   * brute-force / count: the attack has MORE failures from one source than any
     benign user (who tops out around 10). Raise the failures-per-source
     threshold above the largest benign count in the sample FPs (e.g. to 12-15).
   * exclude a clearly-benign field value (user, app, dest) visible in the FPs.
-Make ONE such change. Keep the threshold BELOW the attack's own magnitude (the
-injected attack is a deliberately strong burst) so you never tune past it.
-Keep thresholds BELOW the attack's own size (the attack sends ~250 MB per event,
-hundreds of MB total, in a tight cluster) so you never tune past it.
+Make ONE such change. Keep thresholds BELOW the attack's own magnitude (it sends
+~250 MB per event, ~3.75 GB total across ~15 events in a tight minutes-long
+cluster) so you never tune past it. Prefer a per-time-bucket EVENT-COUNT
+threshold over a raw volume threshold — count separates the attack burst from
+large one-off benign transfers far more reliably than bytes alone.
 
 Current design:
 {design_json}
