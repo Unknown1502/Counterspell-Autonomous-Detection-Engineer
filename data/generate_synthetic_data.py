@@ -367,6 +367,43 @@ def _seed_backup_burst(day_start: datetime) -> list[dict]:
     return out
 
 
+def _seed_auth_retriers(day_start: datetime) -> list[dict]:
+    """Primary-noise benign auth failure clusters (the T1110 false-positive floor).
+
+    Real environments produce non-attack sources that fail to authenticate many
+    times in a row: a locked-out user, a flaky sync client with a stale
+    password, an expired service credential retrying on a loop. Each clusters
+    enough failures from one src_ip to trip a naive "many failures per source"
+    brute-force rule — so a loose first pass flags them as false positives — but
+    they sit BELOW the attacker's volume and (unlike a real brute force) never
+    succeed. The tuning loop removes them by raising the failure threshold above
+    the benign band. These are NOT holdout: they are exactly the noise the
+    T1110 tuning is supposed to learn to exclude.
+    """
+    out: list[dict] = []
+    benign_retry_users = [
+        "jdoe", "msmith", "flaky_sync", "old_mobile_client", "expired_svc_cron",
+    ]
+    # 3-5 independent benign retriers per day.
+    for _ in range(random.randint(3, 5)):
+        src = _internal_ip()
+        user = random.choice(benign_retry_users)
+        host = random.choice(ALL_HOSTS)
+        burst_start = _ts_for_day(day_start)
+        # 5-10 failures: clearly clustered, but below the attacker's burst.
+        for i in range(random.randint(5, 10)):
+            ts = burst_start + timedelta(seconds=i * random.randint(2, 8))
+            out.append(_envelope("cs:auth", {
+                "_time": _iso(ts),
+                "user": user,
+                "src_ip": src,
+                "host": host,
+                "action": "failure",  # deliberately never a success
+                "app": random.choice(APPS),
+            }))
+    return out
+
+
 def _seed_holdout(day_start: datetime) -> list[dict]:
     """Inject the holdout generalization set for one day.
 
@@ -556,6 +593,15 @@ def main() -> None:
         for evt in burst:
             batch.append(evt)
             counts["process"] += 1
+            _flush_if_full()
+
+        # Benign auth-failure clusters — the T1110 false-positive floor a loose
+        # brute-force rule trips on and the tuning loop learns to exclude.
+        retriers = _seed_auth_retriers(day_start)
+        counts["auth_retry"] = counts.get("auth_retry", 0) + len(retriers)
+        for evt in retriers:
+            batch.append(evt)
+            counts["auth"] += 1
             _flush_if_full()
 
         # Holdout generalization set — tagged cs_holdout=true, never shown to

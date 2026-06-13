@@ -35,18 +35,26 @@ has nothing to show.
 
 Hard requirements for this first design:
 - Exactly ONE qualifying condition, chosen to be as PERMISSIVE as possible while
-  still matching the technique. For exfil/volume techniques: a non-standard
-  destination port (anything not in 80,443,22,53,3389) AND bytes_out over a LOW
-  threshold (use 50 MB — do NOT go higher).
-- Aggregate per entity with a simple `stats sum(bytes_out) as total ... by
-  src_ip dest_ip` and threshold the SUM at a LOW value (~50 MB).
-- DO NOT add ANY of these on the first pass: event-count / burst / clustering
-  requirements, time-window bucketing, average-size floors, allowlists, or
-  multiple AND-ed conditions. Those are for tuning, not now.
-- Set thresholds at the LOWEST end that still matches the technique.
-The benign baseline contains many one-off large legitimate transfers; a loose
-rule like the above will correctly flag ~dozens of them as false positives.
-That is the desired outcome of pass one.
+  still matching the technique. Use a simple per-entity `stats ... by <entity>`
+  with a DELIBERATELY LOW threshold:
+    * exfil / volume techniques: non-standard destination port (not in
+      80,443,22,53,3389) AND sum(bytes_out) over a LOW threshold — use 50 MB.
+    * brute-force / count techniques: count of failures per src_ip over a LOW
+      threshold — use 5 (`where failed >= 5`). Do NOT pick 10, 15, or 20; a
+      benign user fat-fingering a password hits ~5-10, and you WANT to catch
+      those as false positives on this first pass.
+    * beaconing / frequency techniques: a LOW event-count-per-destination
+      threshold; do not yet require strict interval regularity.
+  In every case, pick the LOWEST threshold that still matches the technique —
+  err toward too many false positives, never too few.
+- DO NOT add ANY of these on the first pass: burst/clustering requirements
+  beyond the single count above, time-window bucketing, average-size floors,
+  "followed by a success" conditions, allowlists, or multiple AND-ed
+  qualifiers. Those are tuning levers for later, not now.
+The benign baseline deliberately contains dozens of one-off large transfers and
+dozens of benign sources with clustered auth failures; a loose rule like the
+above WILL flag many of them as false positives. That is the intended, required
+outcome of pass one.
 
 Return a JSON object with exactly these keys:
 {{
@@ -76,14 +84,19 @@ MUST stay true. Tighten GRADUALLY — make ONE incremental change per pass, not
 several at once. Over-tightening that drops the attack is worse than leaving a
 few false positives.
 
-The most powerful lever: the true attack is a CONCENTRATED burst (the same source
-repeatedly hits the same destination/port MANY times, tens of MB each, hundreds
-of MB total), while the benign false positives are one-off, scattered events to
-different destinations. So the single highest-value tightening is to require that
-the same src→dest/port repeats (e.g. 3+ events in a short window) — this removes
-the scattered one-off benign transfers while keeping the burst. Apply that ONE
-change first. Only if false positives remain should you, on a later pass, also
-raise the volume threshold or exclude a clearly-benign value from the sample FPs.
+The key insight: the true attack is far MORE EXTREME than the benign false
+positives. Look at the sample FPs below and find the ONE dimension where the
+attack clearly exceeds them, then move the threshold into the gap — above the
+benign values, still below the attack's:
+  * exfil / volume: the attack repeats the same src→dest/port many times for a
+    large total; benign transfers are one-off. Raise the volume threshold and/or
+    require the same src→dest seen multiple times.
+  * brute-force / count: the attack has MORE failures from one source than any
+    benign user (who tops out around 10). Raise the failures-per-source
+    threshold above the largest benign count in the sample FPs (e.g. to 12-15).
+  * exclude a clearly-benign field value (user, app, dest) visible in the FPs.
+Make ONE such change. Keep the threshold BELOW the attack's own magnitude (the
+injected attack is a deliberately strong burst) so you never tune past it.
 Keep thresholds BELOW the attack's own size (the attack sends ~250 MB per event,
 hundreds of MB total, in a tight cluster) so you never tune past it.
 

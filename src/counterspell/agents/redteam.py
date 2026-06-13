@@ -149,7 +149,7 @@ class RedTeam:
     # Fixed external target for the exfil burst (TEST-NET-3, non-private).
     _EXTERNAL_DEST = "203.0.113.77"
     _BURST_BYTES = 250 * 1024 * 1024  # 250 MB per event — unambiguously large
-    _MIN_BURST = 12  # enough repeats that any per-entity aggregation clusters
+    _MIN_BURST = 15  # enough repeats to clearly clear the benign noise floor
 
     @classmethod
     def _force_nonstandard_port(cls, fields: dict) -> None:
