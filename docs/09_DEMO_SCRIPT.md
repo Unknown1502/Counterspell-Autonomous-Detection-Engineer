@@ -134,7 +134,8 @@ Do **not** claim Foundation-Sec if you didn't run it. The provider-agnostic
 framing is honest and still strong. See the voiceover note in Beat 6 below.
 
 > ⚠️ **Voiceover accuracy:** Beats 2/6 and the "How we built it" list below now
-> use the provider-agnostic phrasing by default (we record on Groq/Llama-3.3-70B).
+> use the provider-agnostic phrasing by default (we record on Groq's
+> openai/gpt-oss-120b — an open-weight OpenAI-compatible model).
 > Only upgrade those lines to "Foundation-Sec" if you actually re-record on the
 > Splunk-hosted Foundation-Sec endpoint. An over-claim a judge can't verify is
 > the fastest way to lose the technical-implementation score.
