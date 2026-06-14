@@ -1,13 +1,30 @@
 # Counterspell Architecture
 
-> Source for `architecture.png`. Render with the Mermaid CLI or the VS Code
-> Mermaid preview, then export PNG to the repo root before submission.
+> This file is the architecture diagram of record. GitHub renders the Mermaid
+> blocks below directly, so the diagram lives in the repo root as required.
+> (Optional: export a PNG via the Mermaid CLI / VS Code preview for slides.)
+>
+> It shows the three things the submission asks for:
+> 1. **How the app interacts with Splunk** — HEC inject, MCP `splunk_run_query`,
+>    SDK `create_saved_search` / KV upsert, the in-Splunk custom command, and the
+>    dashboard reading back.
+> 2. **How the AI agents/models are integrated** — five agents driven by a
+>    provider-agnostic OpenAI-compatible model; the Validator is deterministic.
+> 3. **Data flow between services, APIs, and components** — the sequence diagram.
 
 ## System diagram
 
 ```mermaid
 flowchart TB
   threat[/"Threat input<br/>(CVE · report · MITRE TID)"/]:::input
+
+  subgraph entry["Entry points"]
+    direction LR
+    cli["CLI<br/>scripts/run_demo.py"]:::ui
+    cmd["In-Splunk command<br/>counterspell (custom SPL command)"]:::ui
+  end
+  threat --> cli
+  threat --> cmd
 
   subgraph runtime["Counterspell agent runtime · Python"]
     direction TB
@@ -25,14 +42,17 @@ flowchart TB
     orch --> deployer
   end
 
-  llm[(Foundation-Sec 8B<br/>OpenAI-compatible endpoint)]:::ext
-  mcp[(Splunk MCP Server<br/>RBAC · OAuth 2.1)]:::ext
+  cli --> orch
+  cmd ==>|subprocess → system Python<br/>runs the same orchestrator| orch
+
+  llm[(Provider-agnostic LLM<br/>OpenAI-compatible · Groq / Ollama / Foundation-Sec)]:::ext
+  mcp[(Splunk MCP Server v1.2.0<br/>JSON-RPC · RSA-encrypted scoped token)]:::ext
   sdk[(Splunk Python SDK)]:::ext
 
   architect -.->|complete_json| llm
   redteam -.->|complete_json| llm
-  translator -.->|saia_generate_spl| mcp
-  translator -.->|fallback| llm
+  translator -.->|splunk_generate_spl<br/>if AI Assistant installed| mcp
+  translator -.->|LLM fallback| llm
   deployer -.->|complete_json| llm
 
   redteam -->|HEC inject<br/>events tagged cs_scenario_id| sdk
@@ -47,7 +67,6 @@ flowchart TB
 
   splunk --> dash[Counterspell dashboard<br/>FP curve · runbook · saved searches]:::ui
 
-  threat --> orch
   orch -->|approval prompt| human([Human-approval gate]):::gate
   human -->|y| deployer
 
@@ -108,7 +127,7 @@ sequenceDiagram
 | Failure | Detected at | Fallback |
 |---|---|---|
 | MCP unreachable | `MCPClient.run_query` | Direct SDK `oneshot()` |
-| AI Assistant `saia_generate_spl` returns empty | `Translator.to_spl` | LLM-drafted SPL via `complete_json(SplOutput)` |
+| AI Assistant `splunk_generate_spl` absent/empty | `Translator.to_spl` | LLM-drafted SPL via `complete_json(SplOutput)` (this is the path on a stock MCP install without the AI Assistant add-on) |
 | LLM returns malformed JSON | `LLMClient.complete_json` | One repair-retry with the validation error in-prompt |
 | Backtest result set too large | (design) | All SPL is `stats`/`tstats`-aggregated; rows < 1k |
 | Loop fails to converge in `max_iters` | `Orchestrator.run` | Emit `incomplete`, return state without deploying |
@@ -118,9 +137,9 @@ sequenceDiagram
 
 | Operation | Tool | Reason |
 |---|---|---|
-| `run_splunk_query` (backtest) | MCP | Earns honest "uses MCP deeply" credit; the MCP server is built for this. |
-| `saia_generate_spl` (translate) | MCP | AI Assistant for SPL is exposed as an MCP tool. |
-| HEC inject (red-team events) | SDK | MCP server (v1.1.0) has no HEC tool; SDK is the supported path. |
+| `splunk_run_query` (backtest) | MCP | Every backtest runs through MCP; run logs record `used_mcp=true`. The MCP server is built for this. |
+| `splunk_generate_spl` (translate) | MCP → LLM | Used when the AI Assistant for SPL add-on is installed; otherwise the Translator falls back to the LLM. |
+| HEC inject (red-team events) | SDK | MCP server (v1.2.0) has no HEC tool; SDK is the supported path. |
 | Saved-search create (the headline write) | SDK | MCP server exposes no generic "create knowledge object." |
 | KV store upsert (runbook) | SDK | Direct REST via the SDK's auth context. |
 
