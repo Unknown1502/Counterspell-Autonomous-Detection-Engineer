@@ -128,6 +128,13 @@ class Deployer:
         plugs straight into Splunk Enterprise Security's Incident Review and
         Risk-Based Alerting framework — not just a raw scheduled search.
         """
+        # Splunk caps saved-search names at 100 characters. The model
+        # occasionally produces a long, descriptive title, so clamp it here and
+        # use the clamped value everywhere downstream (saved search, ES
+        # metadata, KV runbook) so they all agree.
+        if len(doc.saved_search_name) > 100:
+            doc.saved_search_name = doc.saved_search_name[:100].rstrip(" -–—")
+
         es_extras: dict[str, str | int] = {}
         if design is not None:
             es_extras = _es_kwargs(doc, design)
