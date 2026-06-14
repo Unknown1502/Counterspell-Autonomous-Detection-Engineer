@@ -253,63 +253,76 @@ class SplunkClient:
         re-designing a detection for a MITRE technique that already has a
         Counterspell-deployed saved search.
         """
-        app_ns = self.service.namespace
-        owner = getattr(app_ns, "owner", "nobody") or "nobody"
-        app = getattr(app_ns, "app", "search") or "search"
-        url = (
-            f"https://{self.host}:{self.port}/servicesNS/{owner}/{app}/"
-            "storage/collections/data/counterspell_runbook"
-        )
         headers = {"Authorization": f"Bearer {self.token}"}
-        try:
-            resp = requests.get(url, headers=headers, verify=False, timeout=15)
-            if 200 <= resp.status_code < 300:
-                data = resp.json()
-                return data if isinstance(data, list) else []
-        except Exception as e:  # noqa: BLE001
-            log.warning("KV read failed: %s", e)
+        for app in self._kv_app_order():
+            url = (
+                f"https://{self.host}:{self.port}/servicesNS/nobody/{app}/"
+                "storage/collections/data/counterspell_runbook"
+            )
+            try:
+                resp = requests.get(url, headers=headers, verify=False, timeout=15)
+                if 200 <= resp.status_code < 300:
+                    data = resp.json()
+                    if isinstance(data, list) and data:
+                        return data
+            except Exception as e:  # noqa: BLE001
+                log.warning("KV read failed for app=%s: %s", app, e)
         return []
 
-    def kv_upsert(self, collection: str, record: dict[str, Any]) -> None:
-        """Create the KV collection if missing, then insert a record.
+    def _kv_app_order(self) -> list[str]:
+        """KV-store app namespaces to try, most-preferred first.
 
-        The collection normally ships with the Counterspell app
-        (collections.conf), but the CLI demo runs against a stock `search` app
-        where it does not exist yet. We ensure it via the REST config endpoint
-        (idempotent: 409 means it already exists) so a deploy is self-contained
-        and reproducible on a fresh Splunk, rather than depending on the SDK
-        kvstore object's app context.
+        The Counterspell dashboard reads `inputlookup counterspell_runbook` from
+        the `counterspell` app, so the runbook record MUST land in that app's
+        collection for the dashboard panels to show it. We try `counterspell`
+        first (the app ships collections.conf for it), then fall back to the
+        connection's own app (e.g. `search`) for a CLI-only install without the
+        app. De-duplicated, order preserved.
         """
         app_ns = self.service.namespace
-        owner = getattr(app_ns, "owner", "nobody") or "nobody"
-        app = getattr(app_ns, "app", "search") or "search"
-        ns = f"https://{self.host}:{self.port}/servicesNS/{owner}/{app}"
+        conn_app = getattr(app_ns, "app", "search") or "search"
+        order: list[str] = []
+        for app in ("counterspell", conn_app):
+            if app and app not in order:
+                order.append(app)
+        return order
+
+    def kv_upsert(self, collection: str, record: dict[str, Any]) -> None:
+        """Ensure the KV collection exists, then insert a record.
+
+        Writes into the `counterspell` app's collection (what the dashboard
+        reads) when available, falling back to the connection's app. We ensure
+        the collection via the REST config endpoint (idempotent) so a deploy is
+        self-contained on a fresh Splunk, rather than depending on the SDK
+        kvstore object's app context. Returns after the first successful write.
+        """
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
-
-        ensure = requests.post(
-            f"{ns}/storage/collections/config",
-            headers={"Authorization": f"Bearer {self.token}"},
-            data={"name": collection},
-            verify=False,
-            timeout=30,
-        )
-        if ensure.status_code not in (200, 201, 409):
-            log.warning(
-                "KV collection ensure failed (%s): %s",
-                ensure.status_code, ensure.text[:300],
+        last_status = None
+        for app in self._kv_app_order():
+            ns = f"https://{self.host}:{self.port}/servicesNS/nobody/{app}"
+            requests.post(
+                f"{ns}/storage/collections/config",
+                headers={"Authorization": f"Bearer {self.token}"},
+                data={"name": collection},
+                verify=False,
+                timeout=30,
             )
-
-        resp = requests.post(
-            f"{ns}/storage/collections/data/{collection}",
-            headers=headers,
-            data=json.dumps(record),
-            verify=False,
-            timeout=30,
-        )
-        if not (200 <= resp.status_code < 300):
+            resp = requests.post(
+                f"{ns}/storage/collections/data/{collection}",
+                headers=headers,
+                data=json.dumps(record),
+                verify=False,
+                timeout=30,
+            )
+            if 200 <= resp.status_code < 300:
+                log.info("KV record written to app=%s collection=%s", app, collection)
+                return
+            last_status = (app, resp.status_code, resp.text[:200])
+        if last_status:
             log.warning(
-                "KV upsert failed (%s): %s", resp.status_code, resp.text[:300]
+                "KV upsert failed in all app namespaces; last: app=%s (%s): %s",
+                *last_status,
             )

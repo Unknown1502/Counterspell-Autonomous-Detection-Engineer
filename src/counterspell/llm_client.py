@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Type, TypeVar
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from pydantic import BaseModel, ValidationError
 
 log = logging.getLogger(__name__)
@@ -32,8 +33,41 @@ class LLMClient:
     """OpenAI-compatible chat client that parses and validates JSON responses."""
 
     def __init__(self, base_url: str, api_key: str, model: str) -> None:
-        self.client = OpenAI(base_url=base_url, api_key=api_key or "not-needed")
+        # max_retries lets the SDK honor 429 `retry-after` headers with backoff;
+        # we add our own rate-limit loop on top for free-tier TPM throttling.
+        self.client = OpenAI(
+            base_url=base_url,
+            api_key=api_key or "not-needed",
+            max_retries=4,
+            timeout=90.0,
+        )
         self.model = model
+
+    def _create(self, **kwargs):
+        """chat.completions.create with backoff on free-tier rate limits.
+
+        Hosted free tiers (e.g. Groq's 8k tokens/minute) throttle bursts of the
+        large schema-bearing prompts this loop sends. On a 429 we wait out the
+        window (honoring the server's hint when present) and retry, so a run
+        completes instead of dying mid-loop.
+        """
+        delays = [8, 16, 24, 32]
+        for i, delay in enumerate(delays + [None]):
+            try:
+                return self.client.chat.completions.create(**kwargs)
+            except RateLimitError as e:
+                if delay is None:
+                    raise
+                wait = delay
+                try:  # prefer the server's retry-after hint if available
+                    ra = getattr(e, "response", None)
+                    hdr = ra.headers.get("retry-after") if ra is not None else None
+                    if hdr:
+                        wait = max(wait, int(float(hdr)) + 1)
+                except Exception:  # noqa: BLE001
+                    pass
+                log.warning("rate limited (attempt %d); waiting %ss", i + 1, wait)
+                time.sleep(wait)
 
     def complete_json(
         self,
@@ -48,7 +82,7 @@ class LLMClient:
         attempts = max_retries + 1
         raw = ""
         for attempt in range(attempts):
-            resp = self.client.chat.completions.create(
+            resp = self._create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
