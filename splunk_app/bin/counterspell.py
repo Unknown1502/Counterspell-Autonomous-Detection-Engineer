@@ -93,12 +93,24 @@ class CounterspellCommand(GeneratingCommand):
         "error": "Run error",
     }
 
+    # Every emitted row MUST carry the same columns. Splunk's chunked search
+    # protocol fixes the result schema from the first row's fields, so any field
+    # that appears only on a later row (e.g. fp_count on a `result` row) is
+    # silently dropped. We emit the full union of columns on every row, blank
+    # where not applicable, so the curve / iterations / SPL / summary panels see
+    # their fields.
+    _COLUMNS = (
+        "stage", "message", "chars", "iteration", "tp_caught", "fp_count",
+        "spl", "sample_fps", "saved_search", "detection", "mitre", "fp_curve",
+        "deployed", "triage_steps", "error", "traceback",
+    )
+
     def _row(self, stage: str, **extra: Any) -> dict[str, Any]:
-        row: dict[str, Any] = {
-            "_time": time.time(),
-            "stage": stage,
-            "message": self._STAGE_MSG.get(stage, stage),
-        }
+        row: dict[str, Any] = {"_time": time.time()}
+        for col in self._COLUMNS:
+            row[col] = ""  # stable schema across all rows
+        row["stage"] = stage
+        row["message"] = self._STAGE_MSG.get(stage, stage)
         for k, v in extra.items():
             if v is None:
                 continue
