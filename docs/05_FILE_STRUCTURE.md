@@ -10,7 +10,7 @@ the dependency sequence the project was assembled in.
 counterspell/
 ├── README.md
 ├── LICENSE
-├── architecture.md
+├── architecture_diagram.md
 ├── requirements.txt
 ├── pyproject.toml
 ├── .env.example
@@ -115,7 +115,7 @@ counterspell/
 |---|---|
 | `README.md` | Project intro, doc index, day-0 gate, quickstart. The first thing a judge or teammate reads. |
 | `LICENSE` | Apache 2.0 (matches Splunk's typical choice). |
-| `architecture.md` | The Mermaid system diagram. Devpost submissions are stronger with a diagram; export to PNG for the write-up if needed. |
+| `architecture_diagram.md` | The Mermaid system diagram. Devpost submissions are stronger with a diagram; export to PNG for the write-up if needed. |
 | `requirements.txt` | Pinned Python dependencies. Notable ones: `splunk-sdk`, `openai`, `pydantic`, `requests`, `pyyaml`, `python-dotenv`, `rich`. |
 | `pyproject.toml` | Package metadata so `pip install -e .` works — required for the Splunk custom command to import `counterspell` from `splunkd`'s Python. |
 | `.env.example` | Template for the secrets file (`SPLUNK_TOKEN`, `SPLUNK_HEC_TOKEN`, `MCP_TOKEN`, `LLM_BASE_URL`, etc). Copied to `.env` by each developer. Never committed with real values. |

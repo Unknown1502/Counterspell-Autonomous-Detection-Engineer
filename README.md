@@ -119,7 +119,7 @@ flowchart TB
 ```
 
 The sequence diagram (request-by-request data flow), failure-isolation matrix,
-and the MCP-vs-SDK rationale are in [architecture.md](architecture.md).
+and the MCP-vs-SDK rationale are in [architecture_diagram.md](architecture_diagram.md).
 
 ---
 
@@ -245,7 +245,7 @@ into Splunk's Python (`$SPLUNK_HOME/bin/python3 -m pip install ...`).
 counterspell/
 ├── README.md                ← you are here
 ├── LICENSE                  ← Apache 2.0
-├── architecture.md          ← Mermaid system diagram
+├── architecture_diagram.md          ← Mermaid system diagram
 ├── requirements.txt         ← pinned Python deps
 ├── .env.example             ← copy to .env, fill in secrets
 ├── config.yaml              ← non-secret runtime config
