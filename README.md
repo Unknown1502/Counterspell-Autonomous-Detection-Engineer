@@ -47,6 +47,82 @@ and [docs/05_PROMPT_LIBRARY.md](docs/05_PROMPT_LIBRARY.md).
 
 ---
 
+## Architecture
+
+How the app talks to Splunk, how the AI agents are integrated, and how data
+flows between every service and component:
+
+```mermaid
+flowchart TB
+  threat[/"Threat input<br/>(CVE · report · MITRE TID)"/]:::input
+
+  subgraph entry["Entry points"]
+    direction LR
+    cli["CLI<br/>scripts/run_demo.py"]:::ui
+    cmd["In-Splunk command<br/>counterspell (custom SPL command)"]:::ui
+  end
+  threat --> cli
+  threat --> cmd
+
+  subgraph runtime["Counterspell agent runtime · Python"]
+    direction TB
+    orch{{Orchestrator<br/><i>state · loop · approval gate</i>}}:::orch
+    architect[Architect<br/>design + tune]:::agent
+    redteam[Red-team<br/>synthetic attack]:::agent
+    translator[Translator<br/>logic to SPL]:::agent
+    validator[Validator<br/>TP / FP split · no LLM]:::deterministic
+    deployer[Deployer<br/>runbook + saved search]:::agent
+
+    orch --> architect
+    orch --> redteam
+    orch --> translator
+    orch --> validator
+    orch --> deployer
+  end
+
+  cli --> orch
+  cmd ==>|subprocess → system Python<br/>runs the same orchestrator| orch
+
+  llm[(Provider-agnostic LLM<br/>OpenAI-compatible · Groq / Ollama / Foundation-Sec)]:::ext
+  mcp[(Splunk MCP Server v1.2.0<br/>JSON-RPC · RSA-encrypted scoped token)]:::ext
+  sdk[(Splunk Python SDK)]:::ext
+
+  architect -.->|complete_json| llm
+  redteam -.->|complete_json| llm
+  translator -.->|splunk_generate_spl<br/>if AI Assistant installed| mcp
+  translator -.->|LLM fallback| llm
+  deployer -.->|complete_json| llm
+
+  redteam -->|HEC inject<br/>events tagged cs_scenario_id| sdk
+  validator -->|run_splunk_query| mcp
+  deployer -->|create_saved_search<br/>kv_upsert| sdk
+  mcp -.->|SDK fallback on error| sdk
+
+  sdk --> splunk
+  mcp --> splunk
+
+  splunk[(Splunk Enterprise<br/>index = counterspell)]:::splunk
+
+  splunk --> dash[Counterspell dashboard<br/>FP curve · runbook · saved searches]:::ui
+
+  orch -->|approval prompt| human([Human-approval gate]):::gate
+  human -->|y| deployer
+
+  classDef input fill:#1f2937,stroke:#9ca3af,color:#f9fafb
+  classDef orch fill:#0ea5e9,stroke:#0369a1,color:#fff
+  classDef agent fill:#7c3aed,stroke:#5b21b6,color:#fff
+  classDef deterministic fill:#16a34a,stroke:#15803d,color:#fff
+  classDef ext fill:#374151,stroke:#9ca3af,color:#f9fafb
+  classDef splunk fill:#dc2626,stroke:#991b1b,color:#fff
+  classDef ui fill:#f59e0b,stroke:#b45309,color:#000
+  classDef gate fill:#fbbf24,stroke:#b45309,color:#000
+```
+
+The sequence diagram (request-by-request data flow), failure-isolation matrix,
+and the MCP-vs-SDK rationale are in [architecture.md](architecture.md).
+
+---
+
 ## Day-0 gate — do this first
 
 Before any code runs, four external dependencies must be reachable.
@@ -67,9 +143,6 @@ Verify everything with:
 ```powershell
 python scripts/verify_environment.py
 ```
-
-Full Day-0 checklist: [docs/02_DAY0_GATE.md](docs/02_DAY0_GATE.md).
-
 ---
 
 ## Quickstart
@@ -97,10 +170,10 @@ python scripts/run_demo.py --threat threats/t1048_exfil.md
 Expected output (abridged):
 
 ```
-🧠 Architect designing detection...
-🔴 Red-team generating synthetic attack...
-✍️  Translator writing SPL (iteration 1)...
-🔍 Validator running backtest (iteration 1)...
+Architect designing detection...
+Red-team generating synthetic attack...
+Translator writing SPL (iteration 1)...
+Validator running backtest (iteration 1)...
 ┌─ Backtest Result — iter 1 ──────────────────────┐
 │ iteration: 1                                    │
 │ tp_caught: True                                 │
@@ -114,8 +187,8 @@ Expected output (abridged):
 │ fp_count: 0                                     │
 └─────────────────────────────────────────────────┘
 Deploy this saved search to Splunk? [y/N] y
-🚀 Deploying detection to Splunk...
-✅ Deployed: Counterspell - Bulk Outbound Transfer to Single External IP
+Deploying detection to Splunk...
+Deployed: Counterspell - Bulk Outbound Transfer to Single External IP
 ```
 
 The deployed search now appears under **Settings → Searches, reports, and alerts**
